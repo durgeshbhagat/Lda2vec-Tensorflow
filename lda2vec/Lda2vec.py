@@ -6,7 +6,12 @@ import lda2vec.dirichlet_likelihood as DL
 from lda2vec import utils
 from datetime import datetime
 import warnings
+# Added new library as per need by Durgesh
+import time
+import pandas as pd
+import os
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 
 class Lda2vec:
     RESTORE_KEY = 'to_restore'
@@ -222,16 +227,18 @@ class Lda2vec:
         switch_loss_step = iters_per_epoch * switch_loss_epoch
         # Assign the switch loss variable with the step we just calculated
         self.sesh.run(tf.assign(self.switch_loss, switch_loss_step))
-
+        
         if self.save_graph_def:
             # Initialize a tensorflow Saver object
             saver = tf.train.Saver()
             # Initialize a tensorflow summary writer so we can save logs
             writer = tf.summary.FileWriter(self.logdir + '/', graph=self.sesh.graph)
-
-        # Iterate over the number of epochs we want to train for
+         
+        # Intialize list to stor loss & epoch
+        loss_list = []
         for e in range(num_epochs):
-            print('\nEPOCH:', e + 1)
+            print('\nEPOCH:', e + 1),
+            t1 = time.time()
             # Get a batch worth of data
             for p, t, d in utils.chunks(self.batch_size, pivot_words, target_words, doc_ids):
                 
@@ -244,7 +251,8 @@ class Lda2vec:
                 
                 # Run a step of the model
                 summary, _, l, lw2v, llda, step = self.sesh.run(fetches, feed_dict=feed_dict)
-
+            t2 = time.time()
+            print('\t time taken :{0}'.format(t2-t1))
             # Prints log every "report_every" epoch
             if (e+1) % report_every == 0:
                 print('LOSS', l, 'w2v', lw2v, 'lda', llda)
@@ -258,17 +266,29 @@ class Lda2vec:
                 writer = tf.summary.FileWriter(self.logdir + '/', graph=self.sesh.graph)
             
             # Prints out membership of words in each topic every "print_topics_every" epoch
-            if e>0 and (e+1)%print_topics_every==0:
+            if e>=0 and (e+1)%print_topics_every==0:
                 idxs = np.arange(self.num_topics)
                 words, sims = self.get_k_closest(idxs, in_type='topic', idx_to_word=idx_to_word, k=10, verbose=True)
-
+            
+            # save epoch and loss to loss_list 
+            loss_list.append(e, l, lw2v, llda)
         # Save after all epochs are finished, but only if we didn't just save
         if self.save_graph_def and (e+1) % save_every != 0:
             writer.add_summary(summary, step)
             writer.flush()
             writer.close()        
             save_path = saver.save(self.sesh, self.logdir + '/model.ckpt')
-
+            
+        # Save embedding
+        word_embed_path = os.path.join(self.logdir, 'word_weights_embed.npy')
+        doc_embed_path = os.path.join(self.logdir, 'doc_topic_weights_embed.npy')
+        topic_embed_path = os.path.join(self.logdir, 'topic_weights_embed.npy')
+        self.save_weights_to_file(word_embed_path, doc_embed_path, topic_embed_path)
+        
+        # save loss to xls file using pandas dataframe
+        df = pd.DataFrame(loss_list,  columns = ['epoch','total_loss', 'w2vec_loss', 'lda_loss'])
+        fname_loss = os.path.join(self.logdir, 'loss_list.xlsx')
+        df.to_excel(fname_loss)
     def compute_normed_embeds(self):
         """Normalizes embeddings so we can measure cosine similarity
         between different embedding matrixes.
@@ -311,10 +331,17 @@ class Lda2vec:
         self.batch_array = tf.nn.embedding_lookup(self.normed_embed_dict[in_type], self.idxs_in)
         self.cosine_similarity = tf.matmul(self.batch_array, tf.transpose(self.normed_embed_dict[vs_type], [1, 0]))
         feed_dict = {self.idxs_in: idxs}
+        # save similarity matrix
+        # sim_matrix = self.sesh.run(self.cosine_similarity,  feed_dict=feed_dict)
+        # fname_sim = os.path.join(self.logdir, 'similarity_matrix.npy')
+        # np.save(fname_sim, sim_matrix)
+        
         sim, sim_idxs = self.sesh.run(tf.nn.top_k(self.cosine_similarity, k=k), feed_dict=feed_dict)
+        
+        
         if idx_to_word:
             if verbose and vs_type=="word":
-                print('---------Closest {} words to given indexes----------'.format(k))
+                print('---------Closest {} words to .............................given indexes----------'.format(k))
 
             for i, idx in enumerate(idxs):
                 if in_type == 'word':
@@ -340,9 +367,9 @@ class Lda2vec:
             doc_embed_path (str, optional): Path and name where you want to save doc embeddings
             topic_embed_path (str, optional): Path and name where you want to save topic embeddings
         """
-        word_embeds = self.sesh.run(self.word_embedding)
+        word_embeds = self.sesh.run(self.w_embed.embedding)
         np.save(word_embed_path, word_embeds)
-        doc_embeds = self.sesh.run(self.doc_embedding)
+        doc_embeds = self.sesh.run(self.mixture.doc_embedding)
         np.save(doc_embed_path, doc_embeds)
-        topic_embeds = self.sesh.run(self.topic_embedding)
+        topic_embeds = self.sesh.run(self.mixture.topic_embedding)
         np.save(topic_embed_path, topic_embeds)
