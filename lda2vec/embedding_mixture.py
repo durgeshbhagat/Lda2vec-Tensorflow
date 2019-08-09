@@ -19,7 +19,8 @@ class EmbedMixture:
         self.n_documents = n_documents
         self.temperature = temperature
         self.name = name
-        scalar = 1 / np.sqrt(n_documents + n_topics)
+        # scalar = 1 / np.sqrt(n_documents + n_topics)
+        scalar = 1000
         
         self.doc_embedding = tf.Variable(tf.random_normal([n_documents, n_topics], mean=0, stddev=50 * scalar),
                                          name='doc_embedding') if W_in is None else W_in
