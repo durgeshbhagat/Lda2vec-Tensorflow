@@ -271,7 +271,7 @@ class Lda2vec:
                 words, sims = self.get_k_closest(idxs, in_type='topic', idx_to_word=idx_to_word, k=10, verbose=True)
             
             # save epoch and loss to loss_list 
-            loss_list.append(e, l, lw2v, llda)
+            loss_list.append([e, l, lw2v, llda])
         # Save after all epochs are finished, but only if we didn't just save
         if self.save_graph_def and (e+1) % save_every != 0:
             writer.add_summary(summary, step)
